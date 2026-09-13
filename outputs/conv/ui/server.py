@@ -80,6 +80,8 @@ def serve(port: int = 0, open_browser: bool = True,
     lock = threading.Lock()
     state = {"busy": 0, "bye": 0.0, "loaded": False}
     uploads: dict[str, tuple[Path, str]] = {}
+    # 一键安装的进度（供 /api/install/status 轮询）
+    inst: dict[str, dict] = {}
 
     default_out = Path(out_hint) if out_hint else default_output_dir()
 
@@ -186,12 +188,63 @@ def serve(port: int = 0, open_browser: bool = True,
                 "api/pick-cancel": self._do_pick_cancel,
                 "api/reveal": self._do_reveal,
                 "api/bye": self._do_bye,
+                "api/install": self._do_install,
+                "api/install/status": self._do_install_status,
             }.get(rest, lambda: self._json({"ok": False, "msg": "未知接口"}, 404))()
 
         # ---------- 状态 ----------
         def _do_capabilities(self):
             """能力总览：按类别分板块，供界面的「支持的功能」导航用。"""
             self._json({"groups": reg.overview()})
+
+        def _do_install_status(self):
+            """回传某个引擎的一键安装进度。"""
+            eid = (self._json_body()).get("id") or ""
+            with lock:
+                info = inst.get(eid) or {"state": "idle", "log": []}
+            self._json({"ok": True, "id": eid, **info})
+
+        def _do_install(self):
+            """一键安装引擎：后台执行 winget，前端轮询 /api/install/status。"""
+            eid = (self._json_body()).get("id") or ""
+            # 同步预检：不支持一键装 / 已经装好，就别起线程了
+            eng = engines.get(eid)
+            if not eng.winget_pkg:
+                self._json({"ok": False, "msg": "这个引擎不支持一键安装"})
+                return
+            if eng.found:
+                self._json({"ok": True, "msg": "已经装好了"})
+                return
+            with lock:
+                if inst.get(eid, {}).get("state") == "running":
+                    self._json({"ok": True, "msg": "正在安装中"})
+                    return
+                inst[eid] = {"state": "running", "log": [], "done": False,
+                             "msg": ""}
+
+            def worker():
+                log: list[str] = []
+                def on_line(line: str):
+                    log.append(line)
+                    # 只保留最近 60 行，免得界面越刷越长
+                    if len(log) > 60:
+                        del log[:-60]
+                    with lock:
+                        inst[eid]["log"] = list(log)
+                try:
+                    res = engines.install_engine(eid, on_line=on_line)
+                    with lock:
+                        inst[eid]["done"] = True
+                        inst[eid]["state"] = "ok" if res.get("ok") else "error"
+                        inst[eid]["msg"] = res.get("msg", "")
+                except Exception as e:                       # noqa: BLE001
+                    with lock:
+                        inst[eid]["done"] = True
+                        inst[eid]["state"] = "error"
+                        inst[eid]["msg"] = f"安装出错：{e}"
+
+            threading.Thread(target=worker, daemon=True).start()
+            self._json({"ok": True, "msg": "开始安装"})
 
         def _do_state(self):
             engs = list(engines.status().values())

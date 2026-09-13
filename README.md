@@ -42,13 +42,17 @@
 | Microsoft Office（COM） | Office → PDF | 已装 Office 即可用 |
 | poppler（pdftotext） | PDF → Markdown（保留版面，识别更准） | 需自行安装，缺了自动降级用内置 pypdf |
 
+> **一键安装**：界面「引擎」卡片里，未安装且可自动装的引擎（FFmpeg / poppler / LibreOffice）
+> 会带一个「一键安装」按钮，点一下自动调起 Windows 包管理器下载安装，装完刷新即用。
+> 需要联网，且系统要带 winget（Windows 10/11 自带）。
+
 > **PDF 转文字说明**：能直接提取文字层的 PDF 效果最好；**扫描件（图片型 PDF）没有文字层，无法提取**，需要 OCR。当前版本对扫描件会明确提示「需要 OCR」，不会输出空文件假装成功。
 
 ## 运行环境
 
 - Windows 10 / 11（64 位）
-- 音视频转换需要本机安装 [FFmpeg](https://ffmpeg.org/)
-- PDF 转 Markdown 建议安装 [poppler](https://github.com/oschwartz10612/Poppler)（`winget install oschwartz10612.Poppler`）
+- 音视频转换需要本机安装 [FFmpeg](https://ffmpeg.org/)（可点界面里的「一键安装」）
+- PDF 转 Markdown 建议安装 [poppler](https://github.com/oschwartz10612/Poppler)（可点界面里的「一键安装」）
 
 ## 从源码运行
 

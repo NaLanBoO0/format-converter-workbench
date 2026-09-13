@@ -44,6 +44,14 @@ h1{font-size:17px;font-weight:600;margin:0 0 4px}
      background:var(--soft);color:var(--dim)}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:0 0 auto}
 .dot.off{background:var(--err)}
+.eng .inst{font:inherit;font-size:11px;border:1px solid var(--line);background:var(--card);
+           color:var(--accent);border-radius:12px;padding:1px 9px;cursor:pointer}
+.eng .inst:hover{border-color:var(--accent)}
+.instlog{margin-top:8px;font-size:11.5px;color:var(--dim);line-height:1.5;
+         max-height:120px;overflow:auto;background:var(--soft);
+         border-radius:8px;padding:8px 10px;display:none;white-space:pre-wrap}
+.instlog.show{display:block}
+.instlog .tail{color:var(--accent)}
 
 /* 能力总览（功能导航） */
 #caps .caps-head{display:flex;align-items:center;justify-content:space-between;cursor:pointer;
@@ -160,6 +168,7 @@ h1{font-size:17px;font-weight:600;margin:0 0 4px}
   <div class="card">
     <h2>引擎</h2>
     <div class="engines" id="engines"></div>
+    <div class="instlog" id="instlog"></div>
   </div>
 
   <div class="card" id="caps">
@@ -201,7 +210,7 @@ h1{font-size:17px;font-weight:600;margin:0 0 4px}
     <div id="results"></div>
   </div>
 
-  <div class="sig">Na1aB 制作的小工具 v1.4</div>
+  <div class="sig">Na1aB 制作的小工具 v1.5</div>
 </div>
 
 <script>
@@ -232,16 +241,81 @@ function loadState(){
     (j.engines || []).forEach(function(e){
       html += '<span class="eng" title="' + esc(e.hint || "") + '">'
             + '<i class="dot' + (e.found ? "" : " off") + '"></i>'
-            + esc(e.label) + (e.found ? "" : " · 未安装") + '</span>';
+            + esc(e.label) + (e.found ? "" : " · 未安装");
+      if (!e.found && e.installable){
+        html += '<button class="inst" data-id="' + esc(e.id) + '">一键安装</button>';
+      }
+      html += '</span>';
     });
     (j.plugins || []).forEach(function(p){
       if (!p.ok) html += '<span class="eng" title="' + esc(p.reason || "") + '">'
                        + '<i class="dot off"></i>' + esc(p.label) + '</span>';
     });
     $("engines").innerHTML = html || '<span class="eng">没有可用插件</span>';
+
+    // 给安装按钮挂事件
+    Array.prototype.forEach.call($("engines").querySelectorAll(".inst"), function(btn){
+      btn.addEventListener("click", function(){
+        startInstall(btn.getAttribute("data-id"));
+      });
+    });
   }).catch(function(){});
 }
 loadState();
+
+/* ---------- 一键安装 ---------- */
+var instTimer = null;
+function startInstall(id){
+  if (instTimer) return;                 // 已有安装在跑，别重复触发
+  var log = $("instlog");
+  log.classList.add("show");
+  log.textContent = "正在启动安装（可能需要几分钟，取决于网速）…";
+
+  fetch(api("/api/install"), {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id: id})
+  }).then(function(r){ return r.json(); }).then(function(j){
+    if (j.ok) pollInstall(id);
+    else { log.textContent = "启动失败：" + (j.msg || ""); stopInstall(); }
+  }).catch(function(e){
+    log.textContent = "请求失败：" + e;
+    stopInstall();
+  });
+}
+
+function pollInstall(id){
+  instTimer = setInterval(function(){
+    fetch(api("/api/install/status"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({id: id})
+    }).then(function(r){ return r.json(); }).then(function(j){
+      var log = $("instlog");
+      var lines = j.log || [];
+      if (lines.length){
+        // 只显示最后几行，最新一行加亮
+        var tail = lines.slice(-6);
+        log.innerHTML = esc(tail.join("\n")) || "";
+      }
+      if (j.state === "ok"){
+        log.textContent = (j.msg || "安装完成") + " · 正在刷新…";
+        stopInstall();
+        loadState();                      // 装完刷新引擎状态（会变成「已装」）
+        loadCaps();
+        setTimeout(function(){ log.classList.remove("show"); }, 3000);
+      } else if (j.state === "error"){
+        log.textContent = (j.msg || "安装失败") + " 可手动执行：winget install";
+        stopInstall();
+      }
+    }).catch(function(){});
+  }, 800);
+}
+
+function stopInstall(){
+  if (instTimer){ clearInterval(instTimer); instTimer = null; }
+}
+
 
 /* ---------- 能力总览（功能导航） ---------- */
 function loadCaps(){
